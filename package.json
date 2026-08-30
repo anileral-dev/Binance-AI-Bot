@@ -1,17 +1,16 @@
 {
-  "name": "binance-ai-bot-web",
+  "name": "binance-ai-bot-vm",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "start": "node server/index.js"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@netlify/blobs": "^8.1.0",
-    "@netlify/functions": "^2.8.1"
+    "express": "^4.19.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

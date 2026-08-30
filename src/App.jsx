@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-const API = "/.netlify/functions/api";
-
 async function call(action, options) {
-  const res = await fetch(`${API}?action=${action}`, options);
+  const res = await fetch(`/api?action=${action}`, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Istek basarisiz (${res.status})`);
   return data;
@@ -168,7 +166,7 @@ function Dashboard({ config }) {
 
 // ==================== AYARLAR ====================
 
-const TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "1d"];
+const TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"];
 
 function Field({ label, hint, children }) {
   return (
@@ -247,7 +245,7 @@ function Settings({ config, setConfig }) {
           <Field label="Semboller (virgülle ayır)">
             <input type="text" value={form.symbols.join(",")} onChange={(e) => handleSymbols(e.target.value)} placeholder="BTCUSDT,ETHUSDT" />
           </Field>
-          <Field label="Zaman Dilimi" hint="Bot en fazla 5 dakikada bir tetiklenir, bu yüzden 5m altı seçenek yok">
+          <Field label="Zaman Dilimi">
             <select value={form.timeframe} onChange={(e) => update("timeframe", e.target.value)}>
               {TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
             </select>

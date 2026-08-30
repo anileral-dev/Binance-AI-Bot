@@ -1,5 +1,104 @@
 import crypto from "node:crypto";
-import { getStore } from "@netlify/blobs";
+import fs from "node:fs";
+import path from "node:path";
+
+// ==================== DOSYA TABANLI DEPOLAMA ====================
+
+const DATA_DIR = path.join(process.cwd(), "data");
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+function readJSON(file, fallback) {
+  const p = path.join(DATA_DIR, file);
+  if (!fs.existsSync(p)) return fallback;
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJSON(file, data) {
+  fs.writeFileSync(path.join(DATA_DIR, file), JSON.stringify(data, null, 2));
+}
+
+export function defaultConfig() {
+  return {
+    binanceApiKey: "",
+    binanceApiSecret: "",
+    testnet: true,
+    anthropicApiKey: "",
+    anthropicModel: "claude-sonnet-5",
+    symbols: ["BTCUSDT", "ETHUSDT"],
+    timeframe: "15m",
+    leverage: 5,
+    riskPerTradePercent: 2,
+    maxPositionUSDT: 200,
+    stopLossPercent: 1.5,
+    takeProfitPercent: 3.0,
+    maxOpenPositions: 2,
+    maxDailyLossPercent: 5,
+    rules:
+      "Sadece net bir trend varsa islem ac, yatay piyasada WAIT de.\n" +
+      "RSI 30 altindaysa ve fiyat EMA50 uzerine donuyorsa LONG dusun.\n" +
+      "RSI 70 ustundeyse ve momentum zayifliyorsa SHORT dusun.\n" +
+      "Hacim ortalamanin altindaysa islem acma.\n" +
+      "Emin degilsen WAIT de, zorla islem acma.",
+  };
+}
+
+export function loadConfig() {
+  return { ...defaultConfig(), ...readJSON("config.json", {}) };
+}
+
+export function saveConfig(cfg) {
+  writeJSON("config.json", cfg);
+  return cfg;
+}
+
+export function loadTrades() {
+  return readJSON("trades.json", []);
+}
+
+function appendTrade(trade) {
+  const trades = loadTrades();
+  const record = { id: trades.length + 1, timestamp: new Date().toISOString(), ...trade };
+  trades.push(record);
+  writeJSON("trades.json", trades.slice(-500));
+  return record;
+}
+
+export function loadLessons() {
+  return readJSON("lessons.json", []);
+}
+
+export function addLesson(note) {
+  const lessons = loadLessons();
+  lessons.push({ timestamp: new Date().toISOString(), note });
+  const trimmed = lessons.slice(-100);
+  writeJSON("lessons.json", trimmed);
+  return trimmed;
+}
+
+function lessonsToPromptText(lessons) {
+  const text = lessons.map((l) => `[${l.timestamp}] ${l.note}`).join("\n");
+  return text.length > 3000 ? text.slice(-3000) : text;
+}
+
+function loadDailyState() {
+  return readJSON("state.json", null);
+}
+
+function saveDailyState(state) {
+  writeJSON("state.json", state);
+}
+
+export function loadRunLog() {
+  return readJSON("last-run.json", null);
+}
+
+export function saveRunLog(entry) {
+  writeJSON("last-run.json", entry);
+}
 
 // ==================== BINANCE FUTURES CLIENT ====================
 
@@ -184,105 +283,6 @@ async function callClaude(apiKey, model, systemPrompt, userPrompt) {
   }
 }
 
-// ==================== DEPOLAMA (NETLIFY BLOBS) ====================
-
-const configStore = () => getStore("config");
-const tradesStore = () => getStore("trades");
-const lessonsStore = () => getStore("lessons");
-const stateStore = () => getStore("state");
-
-export function defaultConfig() {
-  return {
-    binanceApiKey: "",
-    binanceApiSecret: "",
-    testnet: true,
-    anthropicApiKey: "",
-    anthropicModel: "claude-sonnet-5",
-    symbols: ["BTCUSDT", "ETHUSDT"],
-    timeframe: "15m",
-    leverage: 5,
-    riskPerTradePercent: 2,
-    maxPositionUSDT: 200,
-    stopLossPercent: 1.5,
-    takeProfitPercent: 3.0,
-    maxOpenPositions: 2,
-    maxDailyLossPercent: 5,
-    rules:
-      "Sadece net bir trend varsa islem ac, yatay piyasada WAIT de.\n" +
-      "RSI 30 altindaysa ve fiyat EMA50 uzerine donuyorsa LONG dusun.\n" +
-      "RSI 70 ustundeyse ve momentum zayifliyorsa SHORT dusun.\n" +
-      "Hacim ortalamanin altindaysa islem acma.\n" +
-      "Emin degilsen WAIT de, zorla islem acma.",
-  };
-}
-
-export async function loadConfig() {
-  const cfg = await configStore().get("settings", { type: "json" });
-  return cfg ? { ...defaultConfig(), ...cfg } : defaultConfig();
-}
-
-export async function saveConfig(cfg) {
-  await configStore().setJSON("settings", cfg);
-  return cfg;
-}
-
-export async function loadTrades() {
-  const t = await tradesStore().get("log", { type: "json" });
-  return t || [];
-}
-
-async function appendTrade(trade) {
-  const trades = await loadTrades();
-  const record = { id: trades.length + 1, timestamp: new Date().toISOString(), ...trade };
-  trades.push(record);
-  await tradesStore().setJSON("log", trades.slice(-500));
-  return record;
-}
-
-export async function loadLessons() {
-  const l = await lessonsStore().get("notes", { type: "json" });
-  return l || [];
-}
-
-export async function addLesson(note) {
-  const lessons = await loadLessons();
-  lessons.push({ timestamp: new Date().toISOString(), note });
-  const trimmed = lessons.slice(-100);
-  await lessonsStore().setJSON("notes", trimmed);
-  return trimmed;
-}
-
-function lessonsToPromptText(lessons) {
-  const text = lessons.map((l) => `[${l.timestamp}] ${l.note}`).join("\n");
-  return text.length > 3000 ? text.slice(-3000) : text;
-}
-
-async function loadDailyState() {
-  return (await stateStore().get("daily", { type: "json" })) || null;
-}
-
-async function saveDailyState(state) {
-  await stateStore().setJSON("daily", state);
-}
-
-export async function loadRunLog() {
-  return (await stateStore().get("last-run", { type: "json" })) || null;
-}
-
-export async function saveRunLog(entry) {
-  await stateStore().setJSON("last-run", entry);
-}
-
-// ==================== ZAMANLAMA (MUM KAPANIS KONTROLU) ====================
-
-const TF_SECONDS = { "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400 };
-
-export function isCandleCloseWindow(timeframe, toleranceSeconds = 300) {
-  const sec = TF_SECONDS[timeframe] || 900;
-  const now = Math.floor(Date.now() / 1000);
-  return now % sec < toleranceSeconds;
-}
-
 // ==================== KARAR VE ISLEM MOTORU ====================
 
 function buildPrompts(rules, symbol, summary, position, lessonsText) {
@@ -319,10 +319,10 @@ function calcQuantity(balance, price, riskPercent, maxPositionUSDT, leverage, pr
 async function checkDailyLossLimit(client, maxLossPercent, log) {
   const today = new Date().toISOString().slice(0, 10);
   const balance = await client.getBalanceUSDT();
-  let state = await loadDailyState();
+  let state = loadDailyState();
   if (!state || state.date !== today) {
     state = { date: today, startBalance: balance };
-    await saveDailyState(state);
+    saveDailyState(state);
     return true;
   }
   if (!state.startBalance || state.startBalance <= 0) return true;
@@ -363,7 +363,7 @@ async function processSymbol(client, cfg, symbol, lessonsText, log) {
       const side = position.side === "LONG" ? "SELL" : "BUY";
       await client.placeMarketOrder(symbol, side, position.amount, true);
       await client.cancelAllOpenOrders(symbol);
-      await appendTrade({ symbol, action: "CLOSE", price, quantity: position.amount, reason: decision.reason, confidence: decision.confidence });
+      appendTrade({ symbol, action: "CLOSE", price, quantity: position.amount, reason: decision.reason, confidence: decision.confidence });
       log.push(`[${symbol}] Pozisyon kapatildi.`);
     }
     return;
@@ -413,14 +413,14 @@ async function processSymbol(client, cfg, symbol, lessonsText, log) {
     try { await client.placeStopMarket(symbol, closeSide, slPrice); } catch (e) { log.push(`[${symbol}] SL kurulamadi: ${e.message}`); }
     try { await client.placeTakeProfitMarket(symbol, closeSide, tpPrice); } catch (e) { log.push(`[${symbol}] TP kurulamadi: ${e.message}`); }
 
-    await appendTrade({ symbol, action, price, quantity, reason: decision.reason, confidence: decision.confidence, stopLoss: slPrice, takeProfit: tpPrice });
+    appendTrade({ symbol, action, price, quantity, reason: decision.reason, confidence: decision.confidence, stopLoss: slPrice, takeProfit: tpPrice });
     log.push(`[${symbol}] ${action} pozisyonu acildi. Miktar: ${quantity}, SL: ${slPrice.toFixed(4)}, TP: ${tpPrice.toFixed(4)}`);
   }
 }
 
 export async function runEngine() {
   const log = [];
-  const cfg = await loadConfig();
+  const cfg = loadConfig();
 
   if (!cfg.binanceApiKey || !cfg.binanceApiSecret || !cfg.anthropicApiKey) {
     log.push("API anahtarlari eksik. Ayarlar sayfasindan doldurup kaydedin.");
@@ -428,7 +428,7 @@ export async function runEngine() {
   }
 
   const client = new BinanceClient(cfg.binanceApiKey, cfg.binanceApiSecret, cfg.testnet);
-  const lessonsText = lessonsToPromptText(await loadLessons());
+  const lessonsText = lessonsToPromptText(loadLessons());
 
   if (await checkDailyLossLimit(client, cfg.maxDailyLossPercent, log)) {
     for (const symbol of cfg.symbols) {
@@ -453,4 +453,33 @@ export async function getLivePositions(cfg) {
     if (p) positions.push({ symbol: s, ...p });
   }
   return { balance, positions, error: null };
+}
+
+// ==================== ZAMANLAYICI (her zaman calisan surec oldugu icin ====================
+// ====================  dakika hassasiyetinde, Netlify'deki 5dk siniri yok) ====================
+
+const TF_SECONDS = {
+  "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
+  "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600, "8h": 28800, "12h": 43200, "1d": 86400,
+};
+
+export function startScheduler() {
+  function scheduleNext() {
+    const cfg = loadConfig();
+    const sec = TF_SECONDS[cfg.timeframe] || 900;
+    const now = Math.floor(Date.now() / 1000);
+    const waitSec = sec - (now % sec) + 5;
+    console.log(`Sonraki otomatik calisma icin ${waitSec} saniye bekleniyor (${cfg.timeframe})...`);
+    setTimeout(async () => {
+      try {
+        const result = await runEngine();
+        saveRunLog(result);
+        console.log(result.log.join("\n"));
+      } catch (e) {
+        console.log("Zamanlanmis calisma hatasi:", e.message);
+      }
+      scheduleNext();
+    }, waitSec * 1000);
+  }
+  scheduleNext();
 }
